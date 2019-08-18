@@ -2,17 +2,19 @@
 
 namespace App\Commands;
 
-use Illuminate\Support\Facades\Redis;
-use GuzzleHttp\Client;
+use LaravelZero\Framework\Commands\Command;
+use Illuminate\Console\Scheduling\Schedule;
+use GuzzleHttp\Client as apiClient;
+use Predis\Client as redisClient;
 
-class ScanOrderbookL2Bitmex extends ScanOrderbook
+class ScanOrderbookL2Bitmex extends Command
 {
     /**
      * The signature of the command.
      *
      * @var string
      */
-    protected $signature = 'orderbook:scan {--exchange=bitmex}';
+    protected $signature = 'orderbook2l:scan {--exchange=bitmex}';
 
     /**
      * The description of the command.
@@ -37,7 +39,7 @@ class ScanOrderbookL2Bitmex extends ScanOrderbook
             $params['exchange'] = $this->option('exchange');
         }
 
-        $client = new Client([
+        $client = new apiClient([
             'base_uri' => $params['host'] . ':' . $params['port'],
             'timeout'  => 2.0,
         ]);
@@ -48,12 +50,15 @@ class ScanOrderbookL2Bitmex extends ScanOrderbook
             $this->error('Error Code ' . $response->getStatusCode());
         }
 
+        // https://github.com/nrk/predis/blob/v1.1/examples/pubsub_consumer.php
 
         $rows = json_decode($response->getBody()->getContents(), JSON_OBJECT_AS_ARRAY, 2147483646);
 
+        $redis = new redisClient();
         foreach ($rows as $row) {
-            Redis::set('bitmex_order_' . $row[0]['id'], $row[0]); // {"symbol": "XBTUSD", "id": 8798816300, "side": "Buy", "size": 23458, "price": 11837}
-        }
+            $key = 'bitmex_order_' . $row['id'];
+            $redis->hset($key, 'id:size:side:price', $row['id'] . ' ' . $row['size'] . ' ' . $row['side'] . ' ' . $row['[price']);
+        }            $key = 'bitmex_order_' . $row['id'];
     }
 
     /**

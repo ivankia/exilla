@@ -65,7 +65,13 @@ class Orderbook extends Command
     public function handle()
     {
         $this->setVerbosity(OutputInterface::VERBOSITY_VERY_VERBOSE);
-        $this->setStyles();
+
+        if ($this->getParam('display') == 'console') {
+            $this->setStyles();
+        } else {
+            $this->setStyles('html');
+        }
+
         $this->processOptions();
 
         while (1) {
@@ -135,7 +141,7 @@ class Orderbook extends Command
             }
         }
 
-        $this->pushNotification('Buy/Sell Size-Price | <fg=white;bg=' . $this->getPriceBackgroundColor($prevLastPrice, $this->getLastPrice()) .'> $ ' . $this->getLastPrice() . ' </> [' . join('-', $this->getParam('price_limits'))  . '] | V ' . $this->getParam('min_size'));
+        $this->pushNotification('<fg=white;bg=' . $this->getPriceBackgroundColor($prevLastPrice, $this->getLastPrice()) .'> $ ' . $this->getLastPrice() . ' </> [' . join('-', $this->getParam('price_limits'))  . '] | Lim ' . $this->getParam('min_size') . ' B/S S-P');
         $this->reportVr($buys, $sells);
 
         return true;
@@ -283,8 +289,11 @@ class Orderbook extends Command
             });
 
             if ($this->getParam('schema') == 'quoter_average') {
-                $orderbookL = $this->colorFillQuoterAverage($orderbookL, 'size', $this->analyse($orderbookL));
-                $orderbookR = $this->colorFillQuoterAverage($orderbookR, 'size', $this->analyse($orderbookR));
+                $analyseL = $this->analyse($orderbookL);
+                $analyseR = $this->analyse($orderbookR);
+
+                $orderbookL = $this->colorFillQuoterAverage($orderbookL, 'size', $analyseL);
+                $orderbookR = $this->colorFillQuoterAverage($orderbookR, 'size', $analyseR);
             } elseif ($this->getParam('schema') == 'discrete_levels') {
                 $orderbookL = $this->colorFillDiscreteLevels($orderbookL, 'size');
                 $orderbookR = $this->colorFillDiscreteLevels($orderbookR, 'size');
@@ -317,7 +326,11 @@ class Orderbook extends Command
             }
         }
 
-        $orderbook  = $this->mergeBuySellOrderbook($orderbookL, $orderbookR);
+
+        $orderbook      = $this->mergeBuySellOrderbook($orderbookL, $orderbookR);
+        $orderbookHTML  = $this->mergeBuySellOrderbookHTML($orderbookL, $orderbookR);
+
+        file_put_contents('/var/www/html/index.html', $this->tableHTML($this->getParam('headers'), $orderbookHTML));
 
         system('clear');
 
@@ -330,6 +343,49 @@ class Orderbook extends Command
         }
 
         $this->table($this->getParam('headers'), $orderbook);
+    }
+
+    /**
+     * @param array $headers
+     * @param array $data
+     *
+     * @return string
+     */
+    public function tableHTML($headers, $data)
+    {
+        $out = '
+        <!doctype html><html lang="en">
+            <head>
+                <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+                <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+                <title>xEzilLa</title>
+            </head>
+            <body>
+        ';
+
+        $out .= '<table class="table table-sm table-dark"><thead><tr><th scope="col">';
+        $out .= join('</th><th scope="col">', $headers);
+        $out .= '</th></tr></thead><tbody>';
+
+        $rwIdx = 1;
+
+        foreach ($data as $col => $val) {
+            $row = $val;
+
+            unset($row['DELIMITER']);
+
+            $out .= '<tr>' . join("", $row) . '</tr>';
+        }
+
+        $out .= '
+            </tbody></table>
+            <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+            <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+            
+        ';
+
+        return $out;
     }
 
     /**
@@ -357,6 +413,60 @@ class Orderbook extends Command
         }
 
         return $orderbook;
+    }
+
+    /**
+     * @param array $b
+     * @param array $s
+     * @return array
+     */
+    protected function mergeBuySellOrderbookHTML($b, $s)
+    {
+        $bP = array_column($b, 'price');
+        $sP = array_column($s, 'price');
+        $bS = array_column($b, 'size');
+        $sS = array_column($s, 'size');
+
+        $orderbook = array_keys($bP);
+
+        foreach ($orderbook as $key => $val) {
+            $orderbook[$key] = [
+                'b_size'  => isset($bS[$key]) ? $this->toHTML($bS[$key]) : '',
+                'b_price' => isset($bP[$key]) ? $this->toHTML($bP[$key]) : '',
+                's_price' => isset($sP[$key]) ? $this->toHTML($sP[$key]) : '',
+                's_size'  => isset($sS[$key]) ? $this->toHTML($sS[$key]) : '',
+            ];
+        }
+
+        return $orderbook;
+    }
+
+    /**
+     * @param string $elem
+     * @return string
+     */
+    protected function toHTML($elem)
+    {
+        $h1  = ['<h100>', '<h101>', '</h100>', '</h101>'];
+        $h2  = ['<h200>', '<h201>', '</h200>', '</h201>'];
+        $h3  = ['<h300>', '<h301>', '</h300>', '</h301>'];
+
+        switch ($elem) {
+            case preg_match('/(100|101)/', $elem):
+                $elem = str_replace($h1, '', $elem);
+                $elem = $this->h1($elem);
+                break;
+            case preg_match('/(200|201)/', $elem):
+                $elem = str_replace($h1, '', $elem);
+                $elem = $this->h2($elem);
+                break;
+            case preg_match('/(300|301)/', $elem):
+                $elem = str_replace($h1, '', $elem);
+                $elem = $this->h3($elem);
+                break;
+        }
+
+        return $elem;
     }
 
     /**
@@ -422,6 +532,28 @@ class Orderbook extends Command
 
         return $orderbook;
     }
+    /**
+     * @param array $orderbook
+     * @param string $param
+     * @param array $deps
+     * @return array
+     */
+    protected function colorFillQuoterAverageHTML($orderbook, $param, $deps)
+    {
+        foreach ($orderbook as $key => $val) {
+            if ($param == 'size' && $val['size'] >= $deps['q2avgs']) {
+                $orderbook[$key]['size']  = $this->high($val['size']);
+                $orderbook[$key]['price'] = $this->high($val['price']);
+            }
+
+            if ($param == 'price' && $val['price'] >= $deps['q2avgp']) {
+                $orderbook[$key]['price'] = $this->high($val['price']);
+                $orderbook[$key]['size']  = $this->high($val['size']);
+            }
+        }
+
+        return $orderbook;
+    }
 
     protected function colorFillDiscreteLevels($orderbook, $param)
     {
@@ -454,6 +586,46 @@ class Orderbook extends Command
                     } elseif ($levelCode == 'high') {
                         $orderbook[$key]['price'] = $this->h300($val['price']);
                         $orderbook[$key]['size'] = $this->h301($val['size']);
+                    }
+                } else {
+                    //
+                }
+            }
+        }
+
+        return $orderbook;
+    }
+    protected function colorFillDiscreteLevelsHTML($orderbook, $param)
+    {
+        $levels = $this->getParam('discrete_levels');
+
+        foreach ($orderbook as $key => $val) {
+            foreach ($levels as $levelCode => $level) {
+                if ($param == 'size' && $val['size'] >= $level) {
+                    if ($levelCode == 'low') {
+                        $orderbook[$key]['size'] = $this->high($val['size']);
+                        $orderbook[$key]['price'] = $this->high($val['price']);
+                    } elseif ($levelCode == 'mid') {
+                        $orderbook[$key]['size'] = $this->norm($val['size']);
+                        $orderbook[$key]['price'] = $this->norm($val['price']);
+                    } elseif ($levelCode == 'high') {
+                        $orderbook[$key]['size'] = $this->low($val['size']);
+                        $orderbook[$key]['price'] = $this->low($val['price']);
+                    }
+                } else {
+                    //
+                }
+
+                if ($param == 'price' && $val['price'] >= $level) {
+                    if ($levelCode == 'low') {
+                        $orderbook[$key]['price'] = $this->high($val['price']);
+                        $orderbook[$key]['size'] = $this->high($val['size']);
+                    } elseif ($levelCode == 'mid') {
+                        $orderbook[$key]['price'] = $this->norm($val['price']);
+                        $orderbook[$key]['size'] = $this->norm($val['size']);
+                    } elseif ($levelCode == 'high') {
+                        $orderbook[$key]['price'] = $this->low($val['price']);
+                        $orderbook[$key]['size'] = $this->low($val['size']);
                     }
                 } else {
                     //
@@ -506,9 +678,11 @@ class Orderbook extends Command
 
     /**
      * Colors: black, red, green, yellow, blue, magenta, cyan, white, default
+     *
+     * @param string $type
      * @return void
      */
-    protected function setStyles()
+    protected function setStyles($type = 'console')
     {
         $this->getOutput()->getFormatter()->setStyle(
             'h1',
@@ -516,26 +690,26 @@ class Orderbook extends Command
         );
         $this->getOutput()->getFormatter()->setStyle(
             'h2',
-            new OutputFormatterStyle('red', 'default', ['bold'])
+            new OutputFormatterStyle('red', 'white')
         );
 
         // low
         $this->getOutput()->getFormatter()->setStyle(
             'h100',
-            new OutputFormatterStyle('green', 'default', ['bold'])
+            new OutputFormatterStyle('default', 'default', ['bold'])
         );
         $this->getOutput()->getFormatter()->setStyle(
             'h101',
-            new OutputFormatterStyle('green', 'default')
+            new OutputFormatterStyle('default', 'default', ['bold'])
         );
         //mid
         $this->getOutput()->getFormatter()->setStyle(
             'h200',
-            new OutputFormatterStyle('yellow', 'default', ['bold'])
+            new OutputFormatterStyle('red', 'default', ['bold'])
         );
         $this->getOutput()->getFormatter()->setStyle(
             'h201',
-            new OutputFormatterStyle('yellow', 'default')
+            new OutputFormatterStyle('red', 'default')
         );
         // high
         $this->getOutput()->getFormatter()->setStyle(
@@ -544,8 +718,35 @@ class Orderbook extends Command
         );
         $this->getOutput()->getFormatter()->setStyle(
             'h301',
-            new OutputFormatterStyle('red', 'default', ['bold'])
+            new OutputFormatterStyle('white', 'red')
         );
+    }
+
+    /**
+     * @param string $string
+     * @return string
+     */
+    protected function high($string)
+    {
+        return '<td class="bg-danger">' . $string . '</td>';
+    }
+
+    /**
+     * @param string $string
+     * @return string
+     */
+    protected function norm($string)
+    {
+        return '<td class="bg-warning">' . $string . '</td>';
+    }
+
+    /**
+     * @param string $string
+     * @return string
+     */
+    protected function low($string)
+    {
+        return '<td class="bg-secondary">' . $string . '</td>';
     }
 
     /**
@@ -554,6 +755,10 @@ class Orderbook extends Command
      */
     protected function h1($string)
     {
+        if ($this->getParam('display') == 'html') {
+            return '<td class=".bg-danger">' . $string . '</td>';
+        }
+
         return '<h1>' . $string . '</>';
     }
 
@@ -563,7 +768,24 @@ class Orderbook extends Command
      */
     protected function h2($string)
     {
+        if ($this->getParam('display') == 'html') {
+            return '<td class=".bg-warning">' . $string . '</td>';
+        }
+
         return '<h2>' . $string . '</>';
+    }
+
+    /**
+     * @param string $string
+     * @return string
+     */
+    protected function h3($string)
+    {
+        if ($this->getParam('display') == 'html') {
+            return '<td class=".bg-secondary">' . $string . '</td>';
+        }
+
+        return '<h3>' . $string . '</>';
     }
 
     /**

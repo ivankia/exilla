@@ -39,6 +39,5 @@ class ScanOrderbook extends Command
      */
     public function schedule(Schedule $schedule)
     {
-        $schedule->command(static::class)->everyMinute();
     }
 }

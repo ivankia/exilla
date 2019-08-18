@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-./exilla orderbook:get --pf=8000 --pt=15000 --s=10 --schema=quoter_average
+./exilla orderbook:get --pf=11050 --pt=12500 --s=10 --limit=64 --schema=quoter_average
